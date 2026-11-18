@@ -16,7 +16,7 @@ Explain something once to Claude Code. Cursor and Claude Desktop already know it
 ![Storage](https://img.shields.io/badge/storage-local%20%C2%B7%20encrypted-2ea44f)
 ![Protocol](https://img.shields.io/badge/protocol-MCP-6E56CF)
 
-[Quick start](#-quick-start) · [How it works](#-how-it-works) · [Trust](#-trust-and-review) · [Search](#-search) · [CLI](#-cli) · [Security](#-security)
+[Quick start](#-quick-start) · [Connect](#-connect-your-ai-tools) · [How it works](#-how-it-works) · [Trust](#-trust-and-review) · [Search](#-search) · [CLI](#-cli) · [Security](#-security)
 
 </div>
 
@@ -41,36 +41,111 @@ Centrext is one local store that every connected agent reads from and writes to,
 Requires Go 1.26 or newer. No C toolchain is needed, because SQLite is pure Go and encrypted.
 
 ```bash
-go install ./cmd/centrext
+git clone https://github.com/RHL-RWT-01/Centrext.git && cd Centrext && go install ./cmd/centrext
 ```
+
+Create your encrypted store:
 
 ```bash
 centrext init
 ```
 
-Connect your clients:
-
-```bash
-centrext connect claude-code
-```
-
-```bash
-centrext connect claude-desktop
-```
-
-Cursor is connected per project, so run this inside each project:
-
-```bash
-centrext connect cursor
-```
-
-Check the setup, including tokens accidentally committed to git:
+Then [connect your AI tools](#-connect-your-ai-tools), and check the setup:
 
 ```bash
 centrext doctor
 ```
 
-Then start a new session and say *"remember that orders live in PostgreSQL"*. Open another client and ask which database to use.
+Start a new session and say *"remember that orders live in PostgreSQL"*. Open another tool and ask which database to use.
+
+## 🔌 Connect your AI tools
+
+Every tool talks to Centrext over [MCP](https://modelcontextprotocol.io) as its own agent, with its own revocable token. Tokens stay in your OS keychain, and configs only ever name the client.
+
+| Tool | Command | What it sets up |
+|---|---|---|
+| **Claude Code** | `centrext connect claude-code` | MCP server for all projects, plus a session-start hook that adds the project summary |
+| **Cursor** | `centrext connect cursor` *(inside each project)* | `.cursor/mcp.json` and a rules file Centrext keeps current (it's git-ignored) |
+| **Claude Desktop** | `centrext connect claude-desktop` | MCP server in Claude Desktop's config. Chats use your Personal namespace |
+| **Any other MCP client** | `centrext connect NAME --manual` | Registers the agent and prints the config to paste |
+
+Restart the tool afterwards. Running `connect` again repairs the setup and reuses the same agent.
+
+### Claude Code
+
+```bash
+centrext connect claude-code
+```
+
+This needs the `claude` CLI on your PATH; if it's missing, Centrext prints the command to run. Optionally, let Centrext add the most relevant saved item to each prompt. The matching happens on your machine:
+
+```bash
+centrext connect claude-code --prompt-context on
+```
+
+### Cursor
+
+Cursor is set up per project, so run this inside each one, or pass `--dir`:
+
+```bash
+centrext connect cursor
+```
+
+### Claude Desktop
+
+```bash
+centrext connect claude-desktop
+```
+
+Quit Claude Desktop completely (including from the menu bar) and reopen it.
+
+### Other MCP clients
+
+Windsurf, VS Code, Codex, Gemini CLI, Zed and other MCP clients connect by hand. Pick a short name for the tool:
+
+```bash
+centrext connect windsurf --manual
+```
+
+Centrext prints a config like this. It never contains a token:
+
+```json
+{
+  "mcpServers": {
+    "centrext": {
+      "command": "/Users/you/go/bin/centrext",
+      "args": ["mcp", "--client", "windsurf"]
+    }
+  }
+}
+```
+
+Paste it where your tool reads MCP servers. Use the printed `command` path, and add `"--workspace", "<project folder>"` to `args` if the tool can pass its project folder.
+
+<details>
+<summary>Where common tools keep their MCP config</summary>
+
+<br/>
+
+| Tool | File | Format |
+|---|---|---|
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | `mcpServers`, as above |
+| Gemini CLI | `~/.gemini/settings.json` | `mcpServers`, as above |
+| VS Code | `.vscode/mcp.json` | `"servers": { "centrext": { "type": "stdio", "command": …, "args": […] } }` |
+| Codex CLI | `~/.codex/config.toml` | `[mcp_servers.centrext]` with `command = "…"` and `args = ["mcp", "--client", "codex"]` |
+| Zed | `settings.json` | `"context_servers": { "centrext": { "command": …, "args": […] } }` |
+
+These locations change between versions; if one doesn't work, check the tool's MCP documentation.
+
+</details>
+
+### Disconnect
+
+```bash
+centrext disconnect cursor
+```
+
+This removes the config Centrext wrote, revokes the agent and deletes its token. Anything the agent proposed stays in `centrext review`.
 
 ## 🧭 How it works
 
@@ -152,7 +227,7 @@ Each prompt is matched against saved context **on your machine**, and the best c
 | Command | What it does |
 |---|---|
 | `init` | Create the encrypted store and your Personal namespace |
-| `connect` / `disconnect CLIENT` | Set up or remove `claude-code`, `cursor` or `claude-desktop` |
+| `connect` / `disconnect CLIENT` | Set up or remove `claude-code`, `cursor`, `claude-desktop`, or any MCP client with `--manual` |
 | `doctor` | Check the store, clients, generated files and repos for leaked tokens |
 | `store status / reencrypt` | Show the store's encryption, or upgrade an older store to AES-XTS |
 | `review [approve / reject ID]` | Approve or reject what agents proposed |
