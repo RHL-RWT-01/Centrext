@@ -62,7 +62,10 @@ func cmdDoctor(ctx context.Context) error {
 		add(connect.Fail, "store", "no local user: "+err.Error(), "centrext init")
 		return errDoctorFailed
 	}
-	add(connect.OK, "store", fmt.Sprintf("%s opens (schema v%d, key from %s)", dbPath, sqlite.SchemaVersion, src), "")
+	add(connect.OK, "store", fmt.Sprintf("%s opens (schema v%d, %s, key from %s)", dbPath, sqlite.SchemaVersion, store.Cipher(), src), "")
+	if store.Cipher() != sqlite.XTS {
+		add(connect.Warn, "store", "encrypted with "+string(store.Cipher())+"; new stores use xts (ADR-025)", "quit your AI clients, then run centrext store reencrypt")
+	}
 	if os.Getenv(keystore.EnvToken) != "" {
 		add(connect.Warn, "environment", keystore.EnvToken+" is set; in this shell it overrides every client's keychain token", "unset "+keystore.EnvToken)
 	}

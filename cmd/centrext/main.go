@@ -48,6 +48,7 @@ Usage:
   centrext embeddings enable [--provider openai|voyage|openai-compatible] [--model M] [--base-url URL]
   centrext embeddings key | status | sync | disable    semantic search through a hosted API
   centrext stats                           capture metrics: what gets saved, retrieved and used
+  centrext store status | reencrypt         show or upgrade the store's encryption (ADR-025)
   centrext doctor                          check the install, clients and repos for leaked tokens
   centrext link NAMESPACE [--dir DIR]      pin this repo with a .centrext marker
   centrext mcp (--client CLIENT | --agent AGENT_ID) [--workspace DIR]
@@ -153,6 +154,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdHook(ctx, args[1:])
 	case "doctor":
 		return cmdDoctor(ctx)
+	case "store":
+		return cmdStore(ctx, args[1:]) // before openApp: reencrypt needs the only connection
 	}
 
 	a, err := openApp(ctx, false)

@@ -15,6 +15,7 @@ import (
 	"github.com/ncruces/go-sqlite3/driver"
 	"github.com/ncruces/go-sqlite3/ext/fts5"
 	_ "github.com/ncruces/go-sqlite3/vfs/adiantum"
+	_ "github.com/ncruces/go-sqlite3/vfs/xts"
 
 	"centrext/internal/domain"
 )
@@ -27,7 +28,8 @@ const KeySize = 32
 
 // Store is a domain.Store backed by SQLite.
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	cipher Cipher
 }
 
 var _ domain.Store = (*Store)(nil)
@@ -41,21 +43,19 @@ func Open(ctx context.Context, path string, key []byte) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	// Order matters: the key pragma must come first.
-	dsn := "file:" + path + "?vfs=adiantum&_txlock=immediate" +
-		"&_pragma=hexkey('" + hex.EncodeToString(key) + "')" +
-		"&_pragma=busy_timeout(5000)" +
-		"&_pragma=journal_mode(wal)" +
-		"&_pragma=synchronous(full)" + // ADR-021: no acknowledged-write loss
-		"&_pragma=foreign_keys(on)" +
-		"&_pragma=temp_store(memory)"
-	// FTS5 is a separate extension in this driver; register it on every
-	// connection, since revision triggers write to the FTS table.
-	db, err := driver.Open(dsn, func(c *sqlite3.Conn) error { return fts5.Register(c) })
+	cipher, err := detectCipher(ctx, path, key)
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db}
+	return openWith(ctx, path, key, cipher)
+}
+
+func openWith(ctx context.Context, path string, key []byte, cipher Cipher) (*Store, error) {
+	db, err := driver.Open(dsn(path, key, cipher), registerFTS)
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{db: db, cipher: cipher}
 	if err := s.migrate(ctx); err != nil {
 		db.Close()
 		return nil, err
@@ -63,6 +63,26 @@ func Open(ctx context.Context, path string, key []byte) (*Store, error) {
 	_ = os.Chmod(path, 0o600)
 	return s, nil
 }
+
+// dsn opens path with the given cipher. Order matters: the key pragma must
+// come first.
+func dsn(path string, key []byte, c Cipher) string {
+	return "file:" + path + "?vfs=" + string(c) + "&_txlock=immediate" +
+		"&_pragma=hexkey('" + hex.EncodeToString(key) + "')" +
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=journal_mode(wal)" +
+		"&_pragma=synchronous(full)" + // ADR-021: no acknowledged-write loss
+		"&_pragma=fullfsync(1)&_pragma=checkpoint_fullfsync(1)" + // ADR-025: macOS only; no-op elsewhere
+		"&_pragma=foreign_keys(on)" +
+		"&_pragma=temp_store(memory)"
+}
+
+// registerFTS adds FTS5, a separate extension in this driver, to every
+// connection, since revision triggers write to the FTS table.
+func registerFTS(c *sqlite3.Conn) error { return fts5.Register(c) }
+
+// Cipher returns the encrypting VFS this store uses.
+func (s *Store) Cipher() Cipher { return s.cipher }
 
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
