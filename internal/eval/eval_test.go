@@ -383,3 +383,56 @@ func TestVectorCacheRoundTrip(t *testing.T) {
 		t.Fatal("query and document vectors are cached separately; a miss must fail in replay mode")
 	}
 }
+
+// Floors for per-prompt injection at the default gate (ADR-024). Precision
+// and silence matter more than hit rate: wrong context nobody asked for
+// misleads the agent, while a miss leaves context_search as the fallback.
+const (
+	floorInjectPrecision = 0.85
+	floorInjectSilence   = 0.85 // share of no-answer prompts that get nothing
+)
+
+// TestPromptInjectionEval measures PromptContext on labeled prompts at
+// several gates. Run with -v to see the comparison.
+func TestPromptInjectionEval(t *testing.T) {
+	c := buildCorpus(t)
+	prompts, err := eval.LoadQueries(filepath.Join("testdata", "prompts.json"), c.ds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := application.New(c.store, application.WithClock(func() time.Time { return base }))
+	var def eval.Injection
+	var b strings.Builder
+	for _, minTerms := range []int{1, 2, 3} {
+		var results []eval.Result
+		var wrong []string
+		for _, q := range prompts {
+			res, err := svc.PromptContext(context.Background(), c.reader, application.PromptQuery{Prompt: q.Q, NamespaceID: c.nsIDs[q.NS], MinTerms: minTerms})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := eval.Result{Query: q}
+			for _, it := range res.Items {
+				k := c.keys[it.Context.ID]
+				r.Returned = append(r.Returned, k)
+				if !contains(q.Relevant, k) {
+					wrong = append(wrong, q.Q+" -> "+k)
+				}
+			}
+			results = append(results, r)
+		}
+		m := eval.ScoreInjection(results, c.hidden)
+		fmt.Fprintf(&b, "min terms %d: %s\n", minTerms, m)
+		if minTerms == application.DefaultMinTerms {
+			def = m
+			fmt.Fprintf(&b, "  irrelevant injections at the default gate:\n    %s\n", strings.Join(wrong, "\n    "))
+		}
+	}
+	t.Logf("prompt injection, %d prompts:\n%s", len(prompts), b.String())
+	if def.Stale > 0 {
+		t.Errorf("stale items injected: %d", def.Stale)
+	}
+	if def.Precision() < floorInjectPrecision || float64(def.NoAnswerOK) < floorInjectSilence*float64(def.NoAnswer) {
+		t.Errorf("injection regression at the default gate: %s", def)
+	}
+}

@@ -190,3 +190,85 @@ func Report(ms map[string]*Metrics) string {
 	}
 	return b.String()
 }
+
+// LoadQueries reads extra labeled queries (e.g. prompts) for a dataset's corpus.
+func LoadQueries(path string, d Dataset) ([]Query, error) {
+	var f struct {
+		Queries []Query `json:"queries"`
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(b, &f); err != nil {
+		return nil, err
+	}
+	keys := map[string]bool{}
+	for _, c := range d.Contexts {
+		keys[c.Key] = true
+	}
+	for _, q := range f.Queries {
+		for _, r := range q.Relevant {
+			if !keys[r] {
+				return nil, fmt.Errorf("query %q: unknown relevant key %q", q.Q, r)
+			}
+		}
+	}
+	return f.Queries, nil
+}
+
+// Injection scores per-prompt context injection (ADR-024), where precision
+// matters most because nobody asked for the context.
+type Injection struct {
+	Prompts, WithAnswer, Hits int // Hits: prompts with an answer where a relevant item was injected
+	NoAnswer, NoAnswerOK      int // prompts with no answer where nothing was injected
+	Injected, Relevant, Stale int // items injected; how many were relevant; how many hidden
+}
+
+// ScoreInjection scores prompt results.
+func ScoreInjection(results []Result, hidden map[string]bool) Injection {
+	var m Injection
+	for _, r := range results {
+		m.Prompts++
+		rel := map[string]bool{}
+		for _, k := range r.Query.Relevant {
+			rel[k] = true
+		}
+		hit := false
+		for _, k := range r.Returned {
+			m.Injected++
+			if rel[k] {
+				m.Relevant++
+				hit = true
+			}
+			if hidden[k] {
+				m.Stale++
+			}
+		}
+		if len(rel) == 0 {
+			m.NoAnswer++
+			if len(r.Returned) == 0 {
+				m.NoAnswerOK++
+			}
+		} else {
+			m.WithAnswer++
+			if hit {
+				m.Hits++
+			}
+		}
+	}
+	return m
+}
+
+// Precision is the share of injected items that were relevant (1 if none were injected).
+func (m Injection) Precision() float64 {
+	if m.Injected == 0 {
+		return 1
+	}
+	return float64(m.Relevant) / float64(m.Injected)
+}
+
+func (m Injection) String() string {
+	return fmt.Sprintf("precision %.0f%% (%d/%d items), hit rate %d/%d prompts, silent on %d/%d no-answer prompts, stale %d",
+		100*m.Precision(), m.Relevant, m.Injected, m.Hits, m.WithAnswer, m.NoAnswerOK, m.NoAnswer, m.Stale)
+}
