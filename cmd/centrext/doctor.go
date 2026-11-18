@@ -50,6 +50,12 @@ func cmdDoctor(ctx context.Context) error {
 	if src == keystore.FromEnv {
 		add(connect.Warn, "store", keystore.EnvKey+" is set and overrides the keychain; clients started without it can't open the database", "unset "+keystore.EnvKey)
 	}
+	if dir, files, problem := keystore.FileSecrets(h); problem != "" {
+		add(connect.Fail, "keys", problem, "chmod -R go-rwx "+dir)
+	} else if len(files) > 0 {
+		add(connect.Warn, "keys", fmt.Sprintf("%d secret(s) are kept in %s instead of an OS keychain; a copy of %s includes them", len(files), dir, h),
+			"leave "+dir+" out of backups, or use a keychain (ADR-026)")
+	}
 	store, err := sqlite.Open(ctx, dbPath, key)
 	if err != nil {
 		add(connect.Fail, "store", "can't open "+dbPath+": "+err.Error(), "")

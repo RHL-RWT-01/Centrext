@@ -224,5 +224,9 @@ func cmdInit(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Printf("Initialized %s\n  user: %s (%s)\n  key:  %s\n  namespace: %s (local_only)\n", dbPath, u.Name, u.ID, src, application.PersonalNamespace)
+	if src == keystore.FromFile {
+		fmt.Printf("No usable OS keychain, so the key is in %s, readable only by you.\nA copy of %s then includes the key; leave keys/ out of backups (ADR-026).\n",
+			filepath.Join(h, keystore.KeysDir), h)
+	}
 	return nil
 }

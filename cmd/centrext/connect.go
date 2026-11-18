@@ -15,7 +15,10 @@ import (
 // keychainTokens adapts the keystore to connect.TokenStore.
 type keychainTokens struct{ home string }
 
-func (k keychainTokens) Store(id, tok string) error     { return keystore.StoreAgentToken(k.home, id, tok) }
+func (k keychainTokens) Store(id, tok string) error {
+	_, err := keystore.StoreAgentToken(k.home, id, tok)
+	return err
+}
 func (k keychainTokens) Load(id string) (string, error) { return keystore.StoredAgentToken(k.home, id) }
 func (k keychainTokens) Delete(id string) error         { return keystore.DeleteAgentToken(k.home, id) }
 

@@ -380,9 +380,15 @@ func (a *app) cmdAgent(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Printf("Registered agent %s (%s)\n", ag.Name, ag.ID)
-		if h, err := home(); err == nil && !*printToken && keystore.StoreAgentToken(h, ag.ID, token) == nil {
-			fmt.Printf("Token stored in the OS keychain. Clients only need: centrext mcp --agent %s\n", ag.ID)
-			return nil
+		if h, err := home(); err == nil && !*printToken {
+			if src, err := keystore.StoreAgentToken(h, ag.ID, token); err == nil {
+				where := "the OS keychain"
+				if src == keystore.FromFile {
+					where = filepath.Join(h, keystore.KeysDir) + " (no usable keychain)"
+				}
+				fmt.Printf("Token stored in %s. Clients only need: centrext mcp --agent %s\n", where, ag.ID)
+				return nil
+			}
 		}
 		fmt.Printf("\nToken (shown once; put it in CENTREXT_TOKEN in the client's user-level config, never in a repo):\n%s\n", token)
 		return nil

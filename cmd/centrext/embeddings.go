@@ -77,10 +77,14 @@ func (a *app) cmdEmbeddings(ctx context.Context, h string, args []string) error 
 		if key == "" {
 			return errors.New("no key given")
 		}
-		if err := keystore.StoreEmbeddingsKey(h, key); err != nil {
-			return fmt.Errorf("store key in keychain: %w", err)
+		src, err := keystore.StoreEmbeddingsKey(h, key)
+		if err != nil {
+			return fmt.Errorf("store the key: %w", err)
 		}
-		fmt.Println("Stored the embeddings API key in the keychain.")
+		fmt.Println("Stored the embeddings API key in the " + string(src) + ".")
+		if src == keystore.FromFile {
+			fmt.Println("No usable OS keychain, so it's in a file readable only by you (ADR-026).")
+		}
 		return nil
 	case "status", "sync":
 		emb := loadEmbedder(h)

@@ -160,7 +160,7 @@ func ensureAgent(ctx context.Context, svc *application.Service, user domain.Acto
 	}
 	if err := env.Tokens.Store(ag.ID, token); err != nil {
 		_, _ = svc.RevokeAgent(ctx, user, ag.ID, false)
-		return domain.Actor{}, fmt.Errorf("couldn't store the agent token in the OS keychain (%v). Until the keychain fallback exists (ADR-021), register an agent with `centrext agent register --print-token` and set CENTREXT_TOKEN in the client's user-level config", err)
+		return domain.Actor{}, fmt.Errorf("couldn't store the agent token: %v", err)
 	}
 	st.Agents[opts.Client] = ag.ID
 	rep.AgentID, rep.NewAgent = ag.ID, true

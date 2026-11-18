@@ -149,6 +149,7 @@ Each prompt is matched against saved context **on your machine**, and the best c
 | `init` | Create the encrypted store and your Personal namespace |
 | `connect` / `disconnect CLIENT` | Set up or remove `claude-code`, `cursor` or `claude-desktop` |
 | `doctor` | Check the store, clients, generated files and repos for leaked tokens |
+| `store status / reencrypt` | Show the store's encryption, or upgrade an older store to AES-XTS |
 | `review [approve / reject ID]` | Approve or reject what agents proposed |
 | `context search / list / show / history / add / verify / delete` | Find and manage saved context |
 | `namespace list / create / link / policy` | Manage namespaces, their identities and storage policy |
@@ -161,7 +162,8 @@ Each prompt is matched against saved context **on your machine**, and the best c
 
 ## 🔐 Security
 
-- **Encrypted at rest.** The database key lives in the OS keychain.
+- **Encrypted at rest.** AES-XTS page encryption, with the key in the OS keychain. On machines without a keychain, such as headless Linux and WSL, keys go to files only you can read.
+- **Durable.** Every acknowledged write is flushed to disk, including on macOS.
 - **No tokens in config files.** Each client's token is kept in the keychain, and configs only say `--client cursor`. Centrext stores only token hashes.
 - **Secrets are rejected.** Writes that contain keys, tokens or passwords are refused.
 - **Instructions aren't trusted.** Text an agent read can never become trusted memory by itself.
