@@ -2,17 +2,21 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"centrext/internal/application"
 	"centrext/internal/domain"
+	"centrext/internal/export"
 	"centrext/internal/infrastructure/keystore"
+	"centrext/internal/workspace"
 )
 
 func newFlags(name string) *flag.FlagSet {
@@ -94,6 +98,20 @@ func (a *app) cmdNamespace(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Printf("Created namespace %s (%s, %s)\n", n.Name, n.ID, n.StorageMode)
+		return nil
+	case "policy":
+		if err := need(args[1:], 2, "NS and MODE (local_only, local_primary, cloud_primary, shared)"); err != nil {
+			return err
+		}
+		n, err := a.svc.FindNamespace(ctx, a.user, args[1])
+		if err != nil {
+			return err
+		}
+		n, err = a.svc.SetStorageMode(ctx, a.user, n.ID, domain.StorageMode(args[2]))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Namespace %s is now %s\n", n.Name, n.StorageMode)
 		return nil
 	case "link":
 		if err := need(args[1:], 2, "NS and IDENTITY"); err != nil {
@@ -439,5 +457,56 @@ func (a *app) cmdStats(ctx context.Context) error {
 		fmt.Printf("\nAccepted agent saves later used by another agent: %d of %d (%.0f%%)\n", usedByOther, accepted, 100*float64(usedByOther)/float64(accepted))
 	}
 	fmt.Println("\"Used\" is what agents report with context_used; Centrext never reads conversations.")
+	return nil
+}
+
+// ---- export
+
+// cmdExport writes the repo namespace's user-verified decisions to
+// .centrext-export/ (ADR-020 experiment, ADR-022).
+func (a *app) cmdExport(ctx context.Context, args []string) error {
+	fs := newFlags("export")
+	dir := fs.String("dir", "", "repo to export into (default: this repo)")
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	start := *dir
+	if start == "" {
+		start, _ = os.Getwd()
+	}
+	root := workspace.RepoRoot(start)
+	if root == "" {
+		return fmt.Errorf("%s isn't in a git repo; export writes files for a repo namespace", start)
+	}
+	id, err := workspace.Resolve(root)
+	if err != nil {
+		return err
+	}
+	ns, err := a.svc.LookupNamespace(ctx, a.user, id)
+	if errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("no namespace for this repo yet; nothing has been saved for it")
+	}
+	if err != nil {
+		return err
+	}
+	ns, views, err := a.svc.ExportSnapshot(ctx, a.user, ns.ID)
+	if err != nil {
+		return err
+	}
+	res, err := export.Write(root, ns, views)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Exported %d item(s) from namespace %s to %s\n", len(views), ns.Name, filepath.Join(root, export.Dir))
+	for _, w := range res.Written {
+		fmt.Println("  wrote   " + w)
+	}
+	for _, r := range res.Removed {
+		fmt.Println("  removed " + r)
+	}
+	if len(res.Written)+len(res.Removed) == 0 {
+		fmt.Println("  already up to date")
+	}
+	fmt.Println("Only user_verified items are exported. Review the files, then commit them.")
 	return nil
 }

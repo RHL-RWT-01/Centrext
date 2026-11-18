@@ -40,6 +40,7 @@ type NamespaceRepo interface {
 	ListNamespaces() ([]Namespace, error)
 	AddNamespaceAlias(namespaceID, identity string) error
 	GetNamespaceByAlias(identity string) (Namespace, error)
+	SetNamespaceStorage(id string, mode StorageMode) error
 }
 
 // ContextFilter selects contexts. Zero values mean "any".

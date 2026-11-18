@@ -95,6 +95,17 @@ func (t *txn) InsertNamespace(n domain.Namespace) error {
 	return err
 }
 
+func (t *txn) SetNamespaceStorage(id string, mode domain.StorageMode) error {
+	res, err := t.tx.Exec(`update namespaces set storage_mode=? where id=?`, mode, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (t *txn) GetNamespace(id string) (domain.Namespace, error) {
 	n, err := scanNamespace(t.tx.QueryRow(`select `+nsCols+` from namespaces where id=?`, id))
 	return n, notFound(err)

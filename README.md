@@ -92,10 +92,11 @@ centrext review
 | `init` | Create the encrypted store and your Personal namespace |
 | `connect` / `disconnect CLIENT` | Install or remove Centrext for `claude-code`, `cursor` or `claude-desktop` |
 | `doctor` | Check the store, clients, generated files and repos for leaked tokens |
+| `export` | Write the repo's verified decisions to `.centrext-export/` for teammates (namespace must allow it) |
 | `stats` | See what gets saved, and how often other agents retrieve and use it |
 | `context list / show / history / add / verify / delete` | Browse and manage saved context |
 | `review [approve / reject ID]` | Approve or reject what agents proposed |
-| `namespace list / create / link` | Manage namespaces and their identities |
+| `namespace list / create / link / policy` | Manage namespaces, their identities and storage policy |
 | `link NAMESPACE` | Pin a repo to a namespace with a `.centrext` file |
 | `agent register / list / grant / revoke` | Manage agents and their access |
 | `mcp`, `hook session-start` | Started by clients, not by you |
