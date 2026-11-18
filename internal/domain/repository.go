@@ -25,6 +25,7 @@ type Tx interface {
 	AuditRepo
 	OutboxRepo
 	UsageRepo
+	EmbeddingRepo
 }
 
 type UserRepo interface {

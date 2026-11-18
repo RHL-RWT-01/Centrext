@@ -2,7 +2,7 @@ package sqlite
 
 // SchemaVersion is the schema this binary writes. A process refuses to open a
 // database with a newer version (ADR-016).
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // migrations[i] upgrades the schema from version i to i+1.
 var migrations = []string{
@@ -159,5 +159,17 @@ end;
 insert into contexts_fts(rowid, title, body)
   select c.rowid, r.title, r.body
   from contexts c join revisions r on r.context_id = c.id and r.version = c.current_version;
+`,
+	// v2 -> v3: vectors for semantic search (0.3, ADR-023). One per context and
+	// model, for the head version; a stale version is recomputed. Derived data.
+	`
+create table embeddings (
+  context_id  text not null references contexts(id),
+  model       text not null,
+  version     integer not null,
+  vector      blob not null,
+  created_at  integer not null,
+  primary key (context_id, model)
+);
 `,
 }
