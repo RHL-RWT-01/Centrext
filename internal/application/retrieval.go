@@ -83,6 +83,8 @@ func (s *Service) Search(ctx context.Context, actor domain.Actor, q SearchQuery)
 			return SearchResult{}, domain.Invalidf("unknown context type %q", t)
 		}
 	}
+	// Network work happens before the transaction (ADR-023).
+	qvec := s.queryVector(ctx, actor, q)
 	var res SearchResult
 	fn := func(tx domain.Tx) error {
 		nsIDs, err := accessibleNamespaces(tx, actor, q.NamespaceID)
@@ -95,7 +97,11 @@ func (s *Service) Search(ctx context.Context, actor domain.Actor, q SearchQuery)
 		if err != nil {
 			return err
 		}
-		ranked := retrieval.Rank(hits)
+		cands, err := s.candidates(tx, nsIDs, hits, qvec, q, now)
+		if err != nil {
+			return err
+		}
+		ranked := s.ranking.Rank(cands)
 		for _, r := range ranked {
 			if len(res.Items) == q.Limit {
 				res.Truncated = true

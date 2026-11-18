@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"centrext/internal/domain"
+	"centrext/internal/retrieval"
 )
 
 // ObservationTTL is how long a silent observation lives unless approved (ADR-015).
@@ -21,6 +22,9 @@ type Service struct {
 	store    domain.Store
 	now      func() time.Time
 	onChange func(ctx context.Context, namespaceID string)
+	embedder domain.Embedder // nil: lexical search only
+	warn     func(msg string)
+	ranking  retrieval.Weights
 }
 
 // Option configures a Service.
@@ -45,7 +49,7 @@ func (s *Service) changed(ctx context.Context, namespaceID string) {
 
 // New creates a Service.
 func New(store domain.Store, opts ...Option) *Service {
-	s := &Service{store: store, now: func() time.Time { return time.Now().UTC() }}
+	s := &Service{store: store, now: func() time.Time { return time.Now().UTC() }, ranking: retrieval.DefaultWeights}
 	for _, o := range opts {
 		o(s)
 	}

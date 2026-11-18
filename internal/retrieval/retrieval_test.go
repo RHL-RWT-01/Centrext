@@ -28,7 +28,7 @@ func TestRankPrefersTrustOnEqualMatch(t *testing.T) {
 		{Context: domain.Context{ID: "weak", HeadTrust: domain.TrustUserVerified}, Lexical: 0.5},
 	}
 	r := Rank(hits)
-	// "weak" scores 0.25 of the top result, below MinRelativeScore, so it's dropped.
+	// "weak" scores 0.25 of the top result, below DefaultWeights.MinRelative, so it's dropped.
 	if len(r) != 2 || r[0].Hit.Context.ID != "user" || r[1].Hit.Context.ID != "agent" {
 		t.Fatalf("got %+v", r)
 	}
