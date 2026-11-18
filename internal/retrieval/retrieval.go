@@ -18,22 +18,74 @@ const maxQueryTerms = 12
 // BuildMatch turns free text into a safe FTS5 expression: each word becomes a
 // quoted prefix term, OR-ed together, so user text can never inject FTS syntax.
 func BuildMatch(query string) string {
-	words := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+	return MatchTerms(terms(query, nil, maxQueryTerms))
+}
+
+// MatchTerms builds the FTS5 expression for terms from Terms or PromptTerms.
+func MatchTerms(terms []string) string {
+	quoted := make([]string, len(terms))
+	for i, t := range terms {
+		quoted[i] = `"` + t + `"*`
+	}
+	return strings.Join(quoted, " OR ")
+}
+
+func words(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	})
+}
+
+func terms(query string, extra map[string]bool, max int) []string {
 	seen := map[string]bool{}
-	var terms []string
-	for _, w := range words {
-		if utf8.RuneCountInString(w) < 2 || seen[w] || stopwords[w] {
+	var out []string
+	for _, w := range words(query) {
+		if utf8.RuneCountInString(w) < 2 || seen[w] || stopwords[w] || extra[w] {
 			continue
 		}
 		seen[w] = true
-		terms = append(terms, `"`+w+`"*`)
-		if len(terms) == maxQueryTerms {
+		out = append(out, w)
+		if len(out) == max {
 			break
 		}
 	}
-	return strings.Join(terms, " OR ")
+	return out
+}
+
+// maxPromptTerms bounds the FTS query built from a whole prompt.
+const maxPromptTerms = 24
+
+// PromptTerms extracts search terms from a user prompt (ADR-024). Prompts
+// are instructions, so common request words are dropped too.
+func PromptTerms(prompt string) []string { return terms(prompt, promptStopwords, maxPromptTerms) }
+
+// MatchedTerms counts how many terms prefix-match a word of text, the way
+// the FTS5 query matches them.
+func MatchedTerms(terms []string, text string) int {
+	ws := words(text)
+	n := 0
+	for _, t := range terms {
+		for _, w := range ws {
+			if strings.HasPrefix(w, t) {
+				n++
+				break
+			}
+		}
+	}
+	return n
+}
+
+var promptStopwords = map[string]bool{
+	"add": true, "make": true, "create": true, "write": true, "fix": true, "show": true, "let": true,
+	"need": true, "needs": true, "can": true, "you": true, "please": true, "new": true, "would": true,
+	"want": true, "get": true, "set": true, "some": true, "any": true, "my": true, "me": true,
+	"your": true, "there": true, "here": true, "when": true, "where": true, "why": true, "them": true,
+	"they": true, "their": true, "about": true, "into": true, "from": true, "these": true, "those": true,
+	"thing": true, "something": true, "just": true, "also": true, "now": true, "then": true, "if": true,
+	"so": true, "not": true, "don": true, "doesn": true, "isn": true, "its": true, "all": true,
+	"one": true, "ones": true, "up": true, "out": true, "like": true, "does": true, "did": true,
+	"will": true, "has": true, "have": true, "was": true, "were": true, "been": true, "file": true,
+	"code": true, "function": true, "explain": true, "quick": true, "help": true, "try": true,
 }
 
 var stopwords = map[string]bool{

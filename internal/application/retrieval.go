@@ -153,6 +153,14 @@ const summaryBodyChars = 400
 // budget (ADR-014). It is delivered by hooks, rules files and MCP server
 // instructions.
 func (s *Service) Summary(ctx context.Context, actor domain.Actor, namespaceID string, budget int) (string, error) {
+	out, _, err := s.SummaryWithIDs(ctx, actor, namespaceID, budget)
+	return out, err
+}
+
+// SummaryWithIDs is Summary plus the ids of the items it shows, so later
+// deliveries in the same session can skip them (ADR-024).
+func (s *Service) SummaryWithIDs(ctx context.Context, actor domain.Actor, namespaceID string, budget int) (string, []string, error) {
+	var ids []string
 	if budget <= 0 {
 		budget = 1000
 	}
@@ -208,6 +216,7 @@ func (s *Service) Summary(ctx context.Context, actor domain.Actor, namespaceID s
 			out.WriteString(line)
 			used += cost
 			shown++
+			ids = append(ids, c.ID)
 		}
 		if hidden := len(cs) - shown; hidden > 0 {
 			fmt.Fprintf(&out, "(%d more not shown.)\n", hidden)
@@ -228,5 +237,5 @@ func (s *Service) Summary(ctx context.Context, actor domain.Actor, namespaceID s
 		out.WriteString("\n")
 		return nil
 	})
-	return out.String(), err
+	return out.String(), ids, err
 }
