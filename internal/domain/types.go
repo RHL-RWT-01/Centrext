@@ -270,5 +270,22 @@ type UsageEvent struct {
 	AgentID   string
 	ContextID string
 	Version   int
-	Kind      string // "retrieved" | "used"
+	Kind      string // UsageRetrieved | UsageUsed
+}
+
+const (
+	UsageRetrieved = "retrieved" // returned to an agent by get or search
+	UsageUsed      = "used"      // the agent reported relying on it (context_used)
+)
+
+// CaptureStat is one row of the capture metrics (ADR-015): created-context
+// proposals grouped by origin and status, and how many of the resulting items
+// other agents retrieved and used.
+type CaptureStat struct {
+	Origin           ProposalOrigin
+	Status           ProposalStatus
+	Proposals        int
+	RetrievedByOther int // retrieved by an agent other than the proposer
+	Used             int // reported used by any agent
+	UsedByOther      int // reported used by an agent other than the proposer
 }

@@ -525,6 +525,31 @@ func (t *txn) CountOutbox() (int, error) {
 	return n, err
 }
 
+func (t *txn) CaptureStats() ([]domain.CaptureStat, error) {
+	rows, err := t.tx.Query(`
+select p.origin, p.status, count(*),
+  coalesce(sum(exists(select 1 from usage_events u where u.context_id = p.result_context_id and u.kind = 'retrieved' and u.agent_id != p.agent_id)), 0),
+  coalesce(sum(exists(select 1 from usage_events u where u.context_id = p.result_context_id and u.kind = 'used')), 0),
+  coalesce(sum(exists(select 1 from usage_events u where u.context_id = p.result_context_id and u.kind = 'used' and u.agent_id != p.agent_id)), 0)
+from proposals p
+where p.kind = 'create'
+group by p.origin, p.status
+order by p.origin, p.status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.CaptureStat
+	for rows.Next() {
+		var s domain.CaptureStat
+		if err := rows.Scan(&s.Origin, &s.Status, &s.Proposals, &s.RetrievedByOther, &s.Used, &s.UsedByOther); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 func (t *txn) RecordUsage(u domain.UsageEvent) error {
 	_, err := t.tx.Exec(`insert into usage_events(id, at, agent_id, context_id, version, kind) values(?,?,?,?,?,?)`,
 		u.ID, ms(u.At), u.AgentID, u.ContextID, u.Version, u.Kind)

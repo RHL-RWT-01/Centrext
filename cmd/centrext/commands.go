@@ -408,3 +408,36 @@ func (a *app) cmdAgent(ctx context.Context, args []string) error {
 	}
 	return fmt.Errorf("unknown agent command %q", args[0])
 }
+
+// ---- stats
+
+// cmdStats prints the capture metrics (ADR-015). The key number is how many
+// accepted items another agent reported using.
+func (a *app) cmdStats(ctx context.Context) error {
+	rows, err := a.svc.CaptureStats(ctx, a.user)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		fmt.Println("Nothing saved yet.")
+		return nil
+	}
+	w := table()
+	fmt.Fprintln(w, "ORIGIN\tSTATUS\tSAVES\tRETRIEVED BY ANOTHER AGENT\tUSED\tUSED BY ANOTHER AGENT")
+	accepted, usedByOther := 0, 0
+	for _, r := range rows {
+		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\n", r.Origin, r.Status, r.Proposals, r.RetrievedByOther, r.Used, r.UsedByOther)
+		if r.Status == domain.ProposalAccepted && r.Origin != domain.OriginUser {
+			accepted += r.Proposals
+			usedByOther += r.UsedByOther
+		}
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	if accepted > 0 {
+		fmt.Printf("\nAccepted agent saves later used by another agent: %d of %d (%.0f%%)\n", usedByOther, accepted, 100*float64(usedByOther)/float64(accepted))
+	}
+	fmt.Println("\"Used\" is what agents report with context_used; Centrext never reads conversations.")
+	return nil
+}

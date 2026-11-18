@@ -68,7 +68,7 @@ func (s *Service) GetContext(ctx context.Context, actor domain.Actor, id string)
 		}
 		now := s.now()
 		return tx.RecordUsage(domain.UsageEvent{ID: newID("use", now), At: now, AgentID: actor.ID,
-			ContextID: c.ID, Version: c.CurrentVersion, Kind: "retrieved"})
+			ContextID: c.ID, Version: c.CurrentVersion, Kind: domain.UsageRetrieved})
 	}
 	if actor.IsUser() {
 		return view, s.store.Read(ctx, fn)

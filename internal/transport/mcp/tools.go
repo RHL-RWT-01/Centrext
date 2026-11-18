@@ -114,6 +114,15 @@ type ProposeIn struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
+type UsedIn struct {
+	IDs []string `json:"ids" jsonschema:"ids of the saved context you relied on (max 20)"`
+}
+
+type UsedOut struct {
+	Recorded []string `json:"recorded"`
+	Unknown  []string `json:"unknown,omitempty"`
+}
+
 type WriteOut struct {
 	Status     string         `json:"status" jsonschema:"accepted, pending (waits for the user's approval) or replayed"`
 	ProposalID string         `json:"proposal_id"`
@@ -173,6 +182,20 @@ func (s *Server) registerTools(srv *sdk.Server) {
 	sdk.AddTool(srv, &sdk.Tool{Name: "context_propose",
 		Description: "kind \"observation\": record something you noticed, without asking the user; it is marked agent_reported and expires in 30 days unless approved. kind \"namespace\": request a new topic namespace after the user agreed; waits for approval."},
 		s.propose)
+	sdk.AddTool(srv, &sdk.Tool{Name: "context_used",
+		Description: "After saved context actually shaped your answer or change, report the ids you relied on, once per task. This only measures whether shared context helps; it changes nothing."},
+		s.used)
+}
+
+func (s *Server) used(ctx context.Context, _ *sdk.CallToolRequest, in UsedIn) (*sdk.CallToolResult, UsedOut, error) {
+	res, err := s.svc.MarkUsed(ctx, s.actor, in.IDs)
+	if err != nil {
+		return nil, UsedOut{}, toolError(err)
+	}
+	if res.Recorded == nil {
+		res.Recorded = []string{}
+	}
+	return nil, UsedOut{Recorded: res.Recorded, Unknown: res.Unknown}, nil
 }
 
 func (s *Server) status(ctx context.Context, req *sdk.CallToolRequest, _ StatusIn) (*sdk.CallToolResult, StatusOut, error) {

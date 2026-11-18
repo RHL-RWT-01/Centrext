@@ -41,6 +41,7 @@ Usage:
   centrext agent revoke AGENT_ID [--reject-pending]
   centrext connect CLIENT [--dir DIR] [--namespace NS ...]   CLIENT: claude-code, cursor, claude-desktop
   centrext disconnect CLIENT [--dir DIR]
+  centrext stats                           capture metrics: what gets saved, retrieved and used
   centrext doctor                          check the install, clients and repos for leaked tokens
   centrext link NAMESPACE [--dir DIR]      pin this repo with a .centrext marker
   centrext mcp (--client CLIENT | --agent AGENT_ID) [--workspace DIR]
@@ -162,6 +163,8 @@ func run(ctx context.Context, args []string) error {
 		return a.cmdAgent(ctx, args[1:])
 	case "link":
 		return a.cmdLink(ctx, args[1:])
+	case "stats":
+		return a.cmdStats(ctx)
 	case "connect":
 		return a.cmdConnect(ctx, args[1:], false)
 	case "disconnect":

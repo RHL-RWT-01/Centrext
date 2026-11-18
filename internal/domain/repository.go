@@ -115,4 +115,5 @@ type OutboxRepo interface {
 
 type UsageRepo interface {
 	RecordUsage(UsageEvent) error
+	CaptureStats() ([]CaptureStat, error)
 }

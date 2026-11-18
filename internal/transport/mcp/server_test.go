@@ -155,6 +155,20 @@ func TestCoreScenarioOverMCP(t *testing.T) {
 		t.Fatalf("provenance missing: %+v", r)
 	}
 
+	// Cursor reports relying on it; the capture metrics credit Claude Code's save.
+	used, _ := call[mcpx.UsedOut](t, cursor, "context_used", map[string]any{"ids": []string{found.Results[0].ID, "ctx_nope"}}, false)
+	if len(used.Recorded) != 1 || len(used.Unknown) != 1 {
+		t.Fatalf("context_used: %+v", used)
+	}
+	stats, err := e.svc.CaptureStats(e.ctx, e.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 || stats[0].Origin != "explicit" || stats[0].Proposals != 1 ||
+		stats[0].RetrievedByOther != 1 || stats[0].Used != 1 || stats[0].UsedByOther != 1 {
+		t.Fatalf("stats: %+v", stats)
+	}
+
 	// Revising a decision/architecture item from an agent waits for the user.
 	upd, _ := call[mcpx.WriteOut](t, cursor, "context_update", map[string]any{"id": found.Results[0].ID, "base_version": 1,
 		"title": "Orders database", "body": "Orders move to DynamoDB.", "origin": "explicit"}, false)

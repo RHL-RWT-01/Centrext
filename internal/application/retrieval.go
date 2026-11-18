@@ -121,7 +121,7 @@ func (s *Service) Search(ctx context.Context, actor domain.Actor, q SearchQuery)
 		}
 		for _, it := range res.Items {
 			if err := tx.RecordUsage(domain.UsageEvent{ID: newID("use", now), At: now, AgentID: actor.ID,
-				ContextID: it.Context.ID, Version: it.Context.CurrentVersion, Kind: "retrieved"}); err != nil {
+				ContextID: it.Context.ID, Version: it.Context.CurrentVersion, Kind: domain.UsageRetrieved}); err != nil {
 				return err
 			}
 		}

@@ -92,6 +92,7 @@ centrext review
 | `init` | Create the encrypted store and your Personal namespace |
 | `connect` / `disconnect CLIENT` | Install or remove Centrext for `claude-code`, `cursor` or `claude-desktop` |
 | `doctor` | Check the store, clients, generated files and repos for leaked tokens |
+| `stats` | See what gets saved, and how often other agents retrieve and use it |
 | `context list / show / history / add / verify / delete` | Browse and manage saved context |
 | `review [approve / reject ID]` | Approve or reject what agents proposed |
 | `namespace list / create / link` | Manage namespaces and their identities |
