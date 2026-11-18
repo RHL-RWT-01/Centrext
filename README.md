@@ -136,4 +136,10 @@ internal/infrastructure   encrypted SQLite store, OS keychain
 go test ./...
 ```
 
+Measure retrieval quality (precision, recall, stale results) on the labeled set in `internal/eval`:
+
+```bash
+go test ./internal/eval -run Retrieval -v
+```
+
 Data lives in `~/.centrext`. Set `CENTREXT_HOME` to use another folder.

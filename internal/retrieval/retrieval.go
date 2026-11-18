@@ -86,5 +86,20 @@ func Rank(hits []domain.SearchHit) []Scored {
 		out[i] = Scored{Hit: h, Score: math.Round(lex*TrustWeight(h.Context.HeadTrust)*1000) / 1000}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	if len(out) > 0 && MinRelativeScore > 0 {
+		cut := out[0].Score * MinRelativeScore
+		for i, s := range out {
+			if s.Score < cut {
+				return out[:i]
+			}
+		}
+	}
 	return out
 }
+
+// MinRelativeScore drops results scoring below this fraction of the top
+// result: OR-matched prefix terms otherwise return items that share one
+// common word. Chosen with the eval harness (internal/eval): 0.4 raised P@5
+// from 71% to 83% with R@5 unchanged at 90%; above it, multi-answer recall
+// drops. Tuned on a small synthetic set, so re-check it on real queries.
+const MinRelativeScore = 0.4
