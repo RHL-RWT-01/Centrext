@@ -365,3 +365,58 @@ func TestPromptContextIsOptIn(t *testing.T) {
 		}
 	}
 }
+
+func TestManualClient(t *testing.T) {
+	f := newFixture(t)
+	if _, err := connect.Connect(f.ctx, f.svc, f.user, f.env, connect.Options{Client: "windsurf"}); err == nil || !strings.Contains(err.Error(), "--manual") {
+		t.Fatalf("unknown clients should point to --manual: %v", err)
+	}
+	for _, bad := range []connect.Options{{Client: connect.Cursor, Manual: true}, {Client: "Wind Surf", Manual: true}, {Client: "-x", Manual: true}} {
+		if _, err := connect.Connect(f.ctx, f.svc, f.user, f.env, bad); err == nil {
+			t.Fatalf("%+v should be refused", bad)
+		}
+	}
+	rep := f.connect(connect.Options{Client: "windsurf", Manual: true})
+	if !rep.NewAgent || len(rep.Changed) != 0 {
+		t.Fatalf("manual connect registers an agent and edits no files: %+v", rep)
+	}
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(rep.Config), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	s := cfg.MCPServers["centrext"]
+	if s.Command != f.env.Binary || strings.Join(s.Args, " ") != "mcp --client windsurf" || strings.Contains(rep.Config, "cxt_") {
+		t.Fatalf("config: %s", rep.Config)
+	}
+	if id, err := connect.AgentFor(f.env.CentrextHome, "windsurf"); err != nil || id != rep.AgentID {
+		t.Fatal("`centrext mcp --client windsurf` must find the agent")
+	}
+	if again := f.connect(connect.Options{Client: "windsurf", Manual: true}); again.NewAgent || again.AgentID != rep.AgentID {
+		t.Fatal("reconnecting reuses the agent")
+	}
+	checks := connect.Doctor(f.ctx, f.svc, f.user, f.env, t.TempDir())
+	found := false
+	for _, c := range checks {
+		if c.Area == "windsurf" && c.Status == connect.OK {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("doctor should check the manual client's agent: %+v", checks)
+	}
+	dis, err := connect.Disconnect(f.ctx, f.svc, f.user, f.env, connect.Options{Client: "windsurf"})
+	if err != nil || len(dis.Manual) == 0 {
+		t.Fatalf("disconnect: %+v %v", dis, err)
+	}
+	if ag, _ := f.svc.GetAgent(f.ctx, f.user, rep.AgentID); ag.Active() {
+		t.Fatal("disconnect revokes the agent")
+	}
+	if _, err := connect.Disconnect(f.ctx, f.svc, f.user, f.env, connect.Options{Client: "windsurf"}); err == nil {
+		t.Fatal("disconnecting a client that isn't connected should say so")
+	}
+}

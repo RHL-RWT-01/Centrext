@@ -108,7 +108,7 @@ func TestDoctorFindsBrokenInstall(t *testing.T) {
 		text string
 		fix  string
 	}{
-		{connect.Fail, "no token for agent " + claude.AgentID, "centrext connect claude-code"},
+		{connect.Fail, "no stored token for agent " + claude.AgentID, "centrext connect claude-code"},
 		{connect.Fail, "no SessionStart hook", "centrext connect claude-code"},
 		{connect.Fail, "claude_desktop_config.json runs", "centrext connect claude-desktop"},
 		{connect.Warn, "rules file is out of date", "centrext connect cursor --dir"},

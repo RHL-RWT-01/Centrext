@@ -63,6 +63,9 @@ type Options struct {
 	Client     string
 	Dir        string   // project folder (Cursor); default: repo root of the working folder
 	Namespaces []string // restrict a new agent to these namespace IDs; default: all
+	// Manual connects any other MCP client: it registers the agent and returns
+	// the config to paste, without editing files.
+	Manual bool
 	// PromptContext turns per-prompt context for Claude Code "on" or "off"
 	// (ADR-024). Empty leaves it as it is.
 	PromptContext string
@@ -77,14 +80,20 @@ type Report struct {
 	Changed  []string
 	Manual   []string
 	Notes    []string
+	Config   string // manual clients: the MCP server config to paste
 }
 
 // Connect installs Centrext into one client. Running it again repairs the
 // install and reuses the agent while its token still works.
 func Connect(ctx context.Context, svc *application.Service, user domain.Actor, env Env, opts Options) (Report, error) {
 	rep := Report{Client: opts.Client}
-	if !known(opts.Client) {
-		return rep, fmt.Errorf("unknown client %q; supported: %s", opts.Client, strings.Join(Clients, ", "))
+	switch {
+	case known(opts.Client) && opts.Manual:
+		return rep, fmt.Errorf("%s is set up automatically; run it without --manual", opts.Client)
+	case !known(opts.Client) && !opts.Manual:
+		return rep, fmt.Errorf("unknown client %q; supported: %s. For any other MCP client, run: centrext connect %s --manual", opts.Client, strings.Join(Clients, ", "), opts.Client)
+	case opts.Manual && !validName(opts.Client):
+		return rep, fmt.Errorf("client name %q: use 1-40 lowercase letters, digits and dashes, e.g. windsurf", opts.Client)
 	}
 	if env.Binary == "" {
 		return rep, errors.New("can't find the centrext binary path")
@@ -104,6 +113,11 @@ func Connect(ctx context.Context, svc *application.Service, user domain.Actor, e
 		return rep, err
 	}
 	switch opts.Client {
+	default:
+		rep.Config = ManualConfig(env, opts.Client)
+		rep.Notes = append(rep.Notes,
+			"Add this server to "+opts.Client+"'s MCP settings (the key may be named mcpServers, servers or context_servers), then restart it.",
+			"If "+opts.Client+" can pass its project folder, add \"--workspace\", \"<folder>\" to args so Centrext finds the project; otherwise it uses the folder the server starts in.")
 	case ClaudeCode:
 		err = installClaudeCode(env, opts, &rep)
 	case ClaudeDesktop:
@@ -115,6 +129,27 @@ func Connect(ctx context.Context, svc *application.Service, user domain.Actor, e
 		return rep, err
 	}
 	return rep, st.save(env.CentrextHome)
+}
+
+// validName accepts names for manually connected clients.
+func validName(s string) bool {
+	if s == "" || len(s) > 40 || s[0] == '-' {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// ManualConfig is the stdio MCP server entry for a manually connected client.
+// It names the client, never a token (ADR-018).
+func ManualConfig(env Env, client string) string {
+	b, _ := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{ServerName: map[string]any{
+		"command": env.Binary, "args": []string{"mcp", "--client", client}}}}, "", "  ")
+	return string(b)
 }
 
 func known(client string) bool {
@@ -483,15 +518,17 @@ func sortedKeys(m map[string]string) []string {
 // Pending proposals stay in the review queue.
 func Disconnect(ctx context.Context, svc *application.Service, user domain.Actor, env Env, opts Options) (Report, error) {
 	rep := Report{Client: opts.Client}
-	if !known(opts.Client) {
-		return rep, fmt.Errorf("unknown client %q; supported: %s", opts.Client, strings.Join(Clients, ", "))
-	}
 	st, err := LoadState(env.CentrextHome)
 	if err != nil {
 		return rep, err
 	}
+	if _, ok := st.Agents[opts.Client]; !known(opts.Client) && !ok {
+		return rep, fmt.Errorf("%q isn't connected", opts.Client)
+	}
 	revoke := true
 	switch opts.Client {
+	default:
+		rep.Manual = append(rep.Manual, "Remove the "+ServerName+" server from "+opts.Client+"'s MCP settings.")
 	case ClaudeCode:
 		if out, err := env.run("claude", "mcp", "remove", "--scope", "user", ServerName); err != nil {
 			if errors.Is(err, exec.ErrNotFound) {

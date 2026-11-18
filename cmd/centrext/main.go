@@ -43,6 +43,7 @@ Usage:
   centrext agent revoke AGENT_ID [--reject-pending]
   centrext connect CLIENT [--dir DIR] [--namespace NS ...]   CLIENT: claude-code, cursor, claude-desktop
                    [--prompt-context on|off]               claude-code: add matching context to each prompt
+  centrext connect NAME --manual           any other MCP client: register it and print its config
   centrext disconnect CLIENT [--dir DIR]
   centrext export [--dir DIR]              write user-verified decisions to .centrext-export/ in this repo
   centrext embeddings enable [--provider openai|voyage|openai-compatible] [--model M] [--base-url URL]

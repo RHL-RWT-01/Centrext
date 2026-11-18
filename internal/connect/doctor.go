@@ -68,6 +68,13 @@ func Doctor(ctx context.Context, svc *application.Service, user domain.Actor, en
 			checkCursor(ctx, svc, env, st, agent, healthy, add)
 		}
 	}
+	// Manually connected clients: Centrext doesn't know their config files,
+	// so only the agent and its token are checked.
+	for _, client := range sortedKeys(st.Agents) {
+		if !known(client) {
+			checkAgent(ctx, svc, user, env, client, st.Agents[client], add)
+		}
+	}
 
 	// Tokens in files git tracks (ADR-018).
 	scanned := map[string]bool{}
@@ -116,7 +123,7 @@ func checkAgent(ctx context.Context, svc *application.Service, user domain.Actor
 	}
 	tok, err := env.Tokens.Load(id)
 	if err != nil {
-		add(Fail, client, "no token for agent "+id+" in the keychain", fix)
+		add(Fail, client, "no stored token for agent "+id, fix)
 		return domain.Actor{}, false
 	}
 	if owner, err := svc.AgentForToken(ctx, user, tok); err != nil || owner.ID != id {
@@ -127,7 +134,7 @@ func checkAgent(ctx context.Context, svc *application.Service, user domain.Actor
 	if ag.LastSeenAt != nil {
 		seen = "last used " + ag.LastSeenAt.Local().Format(time.DateTime)
 	}
-	add(OK, client, "agent "+id+" is active, token in keychain, "+seen, "")
+	add(OK, client, "agent "+id+" is active, token stored, "+seen, "")
 	actor, err := svc.ActAsAgent(ctx, user, id)
 	return actor, err == nil
 }

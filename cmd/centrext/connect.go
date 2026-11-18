@@ -78,6 +78,7 @@ func (a *app) cmdConnect(ctx context.Context, args []string, remove bool) error 
 	fs := newFlags(name)
 	dir := fs.String("dir", "", "project folder for cursor (default: this repo)")
 	promptCtx := fs.String("prompt-context", "", "claude-code: on or off; add matching saved context to each prompt")
+	manual := fs.Bool("manual", false, "any other MCP client: register it and print the config to paste")
 	var nss multi
 	fs.Var(&nss, "namespace", "restrict a new agent to this namespace (repeatable; default: all)")
 	pos, err := parse(fs, args)
@@ -91,7 +92,7 @@ func (a *app) cmdConnect(ctx context.Context, args []string, remove bool) error 
 	if err != nil {
 		return err
 	}
-	opts := connect.Options{Client: pos[0], Dir: *dir, PromptContext: *promptCtx}
+	opts := connect.Options{Client: pos[0], Dir: *dir, PromptContext: *promptCtx, Manual: *manual}
 	for _, n := range nss {
 		ns, err := a.svc.FindNamespace(ctx, a.user, n)
 		if err != nil {
@@ -114,14 +115,16 @@ func printReport(rep connect.Report, removed bool) {
 	case removed:
 		fmt.Printf("Disconnected %s.\n", rep.Client)
 	case rep.NewAgent:
-		fmt.Printf("Connected %s as new agent %s (token in the OS keychain).\n", rep.Client, rep.AgentID)
+		fmt.Printf("Connected %s as new agent %s (its token is kept by Centrext, never in client config).\n", rep.Client, rep.AgentID)
 	case rep.AgentID != "":
 		fmt.Printf("Connected %s with existing agent %s.\n", rep.Client, rep.AgentID)
 	}
 	if rep.Project != "" {
 		fmt.Printf("Project: %s\n", rep.Project)
 	}
-	if len(rep.Changed) > 0 {
+	if rep.Config != "" {
+		fmt.Printf("\nMCP server config for %s:\n\n%s\n\n", rep.Client, rep.Config)
+	} else if len(rep.Changed) > 0 {
 		fmt.Println("Updated:")
 		for _, c := range rep.Changed {
 			fmt.Println("  " + c)
