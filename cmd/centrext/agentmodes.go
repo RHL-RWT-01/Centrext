@@ -7,13 +7,17 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"centrext/internal/application"
 	"centrext/internal/connect"
 	"centrext/internal/domain"
 	"centrext/internal/infrastructure/keystore"
+	"centrext/internal/session"
 	mcpx "centrext/internal/transport/mcp"
 	"centrext/internal/workspace"
 )
@@ -77,20 +81,30 @@ func cmdMCP(ctx context.Context, args []string) error {
 // cmdHook handles client hooks. A hook must never break the user's session:
 // problems go to stderr and the exit code is always 0.
 func cmdHook(ctx context.Context, args []string) error {
-	if len(args) == 0 || args[0] != "session-start" {
-		fmt.Fprintln(os.Stderr, "centrext hook: unknown hook; supported: session-start")
+	if len(args) == 0 || (args[0] != "session-start" && args[0] != "prompt") {
+		fmt.Fprintln(os.Stderr, "centrext hook: unknown hook; supported: session-start, prompt")
 		return nil
 	}
-	fs := newFlags("hook session-start")
+	fs := newFlags("hook " + args[0])
 	agentID := fs.String("agent", "", "agent ID")
 	client := fs.String("client", "claude-code", "claude-code or cursor")
 	if _, err := parse(fs, args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "centrext hook:", err)
 		return nil
 	}
-	out, err := sessionSummary(ctx, *agentID, *client, os.Stdin)
+	in := readHookInput(os.Stdin)
+	var out string
+	var err error
+	if args[0] == "prompt" {
+		out, err = promptContext(ctx, *agentID, *client, in)
+	} else {
+		out, err = sessionSummary(ctx, *agentID, *client, in)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "centrext hook:", err)
+		return nil
+	}
+	if out == "" {
 		return nil
 	}
 	if *client == "cursor" {
@@ -100,43 +114,115 @@ func cmdHook(ctx context.Context, args []string) error {
 	return nil
 }
 
-func sessionSummary(ctx context.Context, agentID, client string, stdin io.Reader) (string, error) {
+// hookInput is the JSON a client sends on stdin. Only the fields used here.
+type hookInput struct {
+	SessionID      string   `json:"session_id"`
+	Cwd            string   `json:"cwd"`
+	WorkspaceRoots []string `json:"workspace_roots"` // Cursor
+	Prompt         string   `json:"prompt"`          // UserPromptSubmit
+}
+
+func readHookInput(r io.Reader) hookInput {
+	var in hookInput
+	b, _ := io.ReadAll(io.LimitReader(r, 1<<20))
+	_ = json.Unmarshal(b, &in)
+	return in
+}
+
+func (in hookInput) dir() string {
+	if len(in.WorkspaceRoots) > 0 {
+		return in.WorkspaceRoots[0]
+	}
+	if in.Cwd != "" {
+		return in.Cwd
+	}
+	d, _ := os.Getwd()
+	return d
+}
+
+// hookNamespace opens the store as the agent and resolves the session's namespace.
+func hookNamespace(ctx context.Context, agentID, client string, in hookInput) (*app, domain.Actor, application.Resolved, error) {
+	a, actor, err := agentApp(ctx, agentID, client)
+	if err != nil {
+		return nil, actor, application.Resolved{}, err
+	}
+	id, err := workspace.Resolve(in.dir())
+	if err == nil {
+		var r application.Resolved
+		if r, err = a.svc.ResolveNamespace(ctx, actor, id); err == nil {
+			return a, actor, r, nil
+		}
+	}
+	a.close()
+	return nil, actor, application.Resolved{}, err
+}
+
+func sessionSummary(ctx context.Context, agentID, client string, in hookInput) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	var in struct {
-		Cwd            string   `json:"cwd"`
-		WorkspaceRoots []string `json:"workspace_roots"` // Cursor
-	}
-	b, _ := io.ReadAll(io.LimitReader(stdin, 1<<20))
-	_ = json.Unmarshal(b, &in)
-	dir := in.Cwd
-	if len(in.WorkspaceRoots) > 0 {
-		dir = in.WorkspaceRoots[0]
-	}
-	if dir == "" {
-		dir, _ = os.Getwd()
-	}
-	a, actor, err := agentApp(ctx, agentID, client)
+	a, actor, r, err := hookNamespace(ctx, agentID, client, in)
 	if err != nil {
 		return "", err
 	}
 	defer a.close()
-	id, err := workspace.Resolve(dir)
-	if err != nil {
-		return "", err
-	}
-	r, err := a.svc.ResolveNamespace(ctx, actor, id)
-	if err != nil {
-		return "", err
-	}
-	sum, err := a.svc.Summary(ctx, actor, r.Namespace.ID, 1000)
+	sum, ids, err := a.svc.SummaryWithIDs(ctx, actor, r.Namespace.ID, 1000)
 	if err != nil {
 		return "", err
 	}
 	if r.Note != "" {
 		sum += "\nNote: " + r.Note + "\n"
 	}
+	if h, err := home(); err == nil && in.SessionID != "" {
+		d := session.Load(h, in.SessionID)
+		d.Add(ids...)
+		if err := d.Save(time.Now()); err != nil {
+			fmt.Fprintln(os.Stderr, "centrext hook: couldn't record the session:", err)
+		}
+	}
 	return sum, nil
+}
+
+// promptBodyChars caps an injected item's body.
+const promptBodyChars = 600
+
+// promptContext returns at most one saved item clearly relevant to the
+// prompt, skipping what this session already got (ADR-024). The prompt is
+// matched locally and never stored.
+func promptContext(ctx context.Context, agentID, client string, in hookInput) (string, error) {
+	if strings.TrimSpace(in.Prompt) == "" {
+		return "", nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	a, actor, r, err := hookNamespace(ctx, agentID, client, in)
+	if err != nil {
+		return "", err
+	}
+	defer a.close()
+	h, err := home()
+	if err != nil {
+		return "", err
+	}
+	d := session.Load(h, in.SessionID)
+	res, err := a.svc.PromptContext(ctx, actor, application.PromptQuery{Prompt: in.Prompt, NamespaceID: r.Namespace.ID, Exclude: d.IDs})
+	if err != nil || len(res.Items) == 0 {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("Centrext: saved context that may apply to this request. It was saved earlier, possibly in another AI tool; prefer it over assumptions.\n")
+	for _, it := range res.Items {
+		body := strings.Join(strings.Fields(it.Head.Body), " ")
+		if utf8.RuneCountInString(body) > promptBodyChars {
+			body = string([]rune(body)[:promptBodyChars]) + "…"
+		}
+		fmt.Fprintf(&b, "- [%s, %s] %s (%s): %s\n", it.Context.Type, it.Context.HeadTrust, it.Head.Title, it.Context.ID, body)
+		d.Add(it.Context.ID)
+	}
+	b.WriteString("If it shaped your answer, call context_used with its id. Use context_search for more.\n")
+	if err := d.Save(time.Now()); err != nil {
+		fmt.Fprintln(os.Stderr, "centrext hook: couldn't record the session:", err)
+	}
+	return b.String(), nil
 }
 
 // cmdLink pins the current repo (or --dir) to a namespace with a .centrext marker.

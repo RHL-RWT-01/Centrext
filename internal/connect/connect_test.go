@@ -108,9 +108,13 @@ func writeFile(t *testing.T, path, body string) {
 }
 
 func sessionStartCommands(t *testing.T, settings string) []string {
+	return hookCommands(t, settings, "SessionStart")
+}
+
+func hookCommands(t *testing.T, settings, event string) []string {
 	var out []string
 	hooks, _ := readJSON(t, settings)["hooks"].(map[string]any)
-	groups, _ := hooks["SessionStart"].([]any)
+	groups, _ := hooks[event].([]any)
 	for _, g := range groups {
 		for _, h := range g.(map[string]any)["hooks"].([]any) {
 			out = append(out, h.(map[string]any)["command"].(string))
@@ -323,4 +327,41 @@ func mustState(t *testing.T, f *fixture) connect.State {
 		t.Fatal(err)
 	}
 	return st
+}
+
+func TestPromptContextIsOptIn(t *testing.T) {
+	f := newFixture(t)
+	settings := filepath.Join(f.env.UserHome, ".claude", "settings.json")
+	writeFile(t, settings, `{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"my-linter"}]}]}}`)
+	prompt := func() []string { return hookCommands(t, settings, connect.PromptEvent) }
+
+	f.connect(connect.Options{Client: connect.ClaudeCode})
+	if p := prompt(); len(p) != 1 || p[0] != "my-linter" {
+		t.Fatalf("per-prompt context must be off unless asked for: %q", p)
+	}
+	f.connect(connect.Options{Client: connect.ClaudeCode, PromptContext: "on"})
+	f.connect(connect.Options{Client: connect.ClaudeCode, PromptContext: "on"})
+	if p := prompt(); len(p) != 2 || p[1] != "'/opt/centrext bin/centrext' hook prompt --client claude-code" {
+		t.Fatalf("on: %q", p)
+	}
+	f.connect(connect.Options{Client: connect.ClaudeCode}) // no flag: unchanged
+	if len(prompt()) != 2 || len(sessionStartCommands(t, settings)) != 1 {
+		t.Fatalf("reconnect without the flag should keep it: %q", prompt())
+	}
+	f.connect(connect.Options{Client: connect.ClaudeCode, PromptContext: "off"})
+	if p := prompt(); len(p) != 1 || p[0] != "my-linter" {
+		t.Fatalf("off: %q", p)
+	}
+	f.connect(connect.Options{Client: connect.ClaudeCode, PromptContext: "on"})
+	if _, err := connect.Disconnect(f.ctx, f.svc, f.user, f.env, connect.Options{Client: connect.ClaudeCode}); err != nil {
+		t.Fatal(err)
+	}
+	if p := prompt(); len(p) != 1 || len(sessionStartCommands(t, settings)) != 0 {
+		t.Fatalf("disconnect should remove both hooks: %q", p)
+	}
+	for _, bad := range []connect.Options{{Client: connect.Cursor, PromptContext: "on"}, {Client: connect.ClaudeCode, PromptContext: "yes"}} {
+		if _, err := connect.Connect(f.ctx, f.svc, f.user, f.env, bad); err == nil {
+			t.Fatalf("%+v should be refused", bad)
+		}
+	}
 }

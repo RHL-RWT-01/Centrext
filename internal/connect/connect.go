@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -62,6 +63,9 @@ type Options struct {
 	Client     string
 	Dir        string   // project folder (Cursor); default: repo root of the working folder
 	Namespaces []string // restrict a new agent to these namespace IDs; default: all
+	// PromptContext turns per-prompt context for Claude Code "on" or "off"
+	// (ADR-024). Empty leaves it as it is.
+	PromptContext string
 }
 
 // Report says what connect did and what the user still has to do.
@@ -85,6 +89,12 @@ func Connect(ctx context.Context, svc *application.Service, user domain.Actor, e
 	if env.Binary == "" {
 		return rep, errors.New("can't find the centrext binary path")
 	}
+	switch {
+	case opts.PromptContext != "" && opts.PromptContext != "on" && opts.PromptContext != "off":
+		return rep, fmt.Errorf("--prompt-context takes on or off, not %q", opts.PromptContext)
+	case opts.PromptContext != "" && opts.Client != ClaudeCode:
+		return rep, fmt.Errorf("--prompt-context is only for %s; other clients have no hook that can add context to a prompt", ClaudeCode)
+	}
 	st, err := LoadState(env.CentrextHome)
 	if err != nil {
 		return rep, err
@@ -95,7 +105,7 @@ func Connect(ctx context.Context, svc *application.Service, user domain.Actor, e
 	}
 	switch opts.Client {
 	case ClaudeCode:
-		err = installClaudeCode(env, &rep)
+		err = installClaudeCode(env, opts, &rep)
 	case ClaudeDesktop:
 		err = installClaudeDesktop(env, &rep)
 	case Cursor:
@@ -159,7 +169,7 @@ func ensureAgent(ctx context.Context, svc *application.Service, user domain.Acto
 
 // ---- Claude Code: MCP server through the `claude` CLI, SessionStart hook.
 
-func installClaudeCode(env Env, rep *Report) error {
+func installClaudeCode(env Env, opts Options, rep *Report) error {
 	server, _ := json.Marshal(map[string]any{"type": "stdio", "command": env.Binary, "args": []string{"mcp", "--client", ClaudeCode}})
 	add := []string{"mcp", "add-json", "--scope", "user", ServerName, string(server)}
 	_, _ = env.run("claude", "mcp", "remove", "--scope", "user", ServerName) // fine if absent
@@ -172,13 +182,25 @@ func installClaudeCode(env Env, rep *Report) error {
 		rep.Changed = append(rep.Changed, "Claude Code user MCP config (claude mcp add-json --scope user)")
 	}
 	settings := filepath.Join(env.UserHome, ".claude", "settings.json")
-	cmd := shellQuote(env.Binary) + " hook session-start --client " + ClaudeCode
-	changed, err := setClaudeHook(settings, cmd, true)
+	changed, err := setClaudeHook(settings, SessionStartEvent, claudeHookCommand(env, "session-start"), true)
 	if err != nil {
 		return err
 	}
+	if opts.PromptContext != "" {
+		c, err := setClaudeHook(settings, PromptEvent, claudeHookCommand(env, "prompt"), opts.PromptContext == "on")
+		if err != nil {
+			return err
+		}
+		changed = changed || c
+	}
 	if changed {
 		rep.Changed = append(rep.Changed, settings)
+	}
+	switch opts.PromptContext {
+	case "on":
+		rep.Notes = append(rep.Notes, "Per-prompt context is on: each prompt is matched locally against saved context, and the best clear match is added (ADR-024). Turn it off with --prompt-context off.")
+	case "off":
+		rep.Notes = append(rep.Notes, "Per-prompt context is off.")
 	}
 	rep.Notes = append(rep.Notes, "Start a new Claude Code session to load it.")
 	return nil
@@ -192,15 +214,27 @@ func joinShell(args []string) string {
 	return strings.Join(q, " ")
 }
 
-func isOurHook(cmd any) bool {
-	s, _ := cmd.(string)
-	return strings.Contains(s, "centrext") && strings.Contains(s, "hook session-start")
+// Claude Code hook events Centrext installs, and the `centrext hook` for each.
+const (
+	SessionStartEvent = "SessionStart"
+	PromptEvent       = "UserPromptSubmit"
+)
+
+var hookNames = map[string]string{SessionStartEvent: "session-start", PromptEvent: "prompt"}
+
+func claudeHookCommand(env Env, hook string) string {
+	return shellQuote(env.Binary) + " hook " + hook + " --client " + ClaudeCode
 }
 
-// setClaudeHook removes Centrext's SessionStart hooks from a Claude Code
+func isOurHook(cmd any, event string) bool {
+	s, _ := cmd.(string)
+	return strings.Contains(s, "centrext") && strings.Contains(s, "hook "+hookNames[event]+" ")
+}
+
+// setClaudeHook removes Centrext's hooks for event from a Claude Code
 // settings file and, with install, adds one running command. Other settings
 // and hooks are kept.
-func setClaudeHook(path, command string, install bool) (bool, error) {
+func setClaudeHook(path, event, command string, install bool) (bool, error) {
 	m, err := readJSON(path)
 	if err != nil {
 		return false, err
@@ -210,9 +244,9 @@ func setClaudeHook(path, command string, install bool) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", path, err)
 	}
-	groups, ok := hooks["SessionStart"].([]any)
-	if !ok && hooks["SessionStart"] != nil {
-		return false, fmt.Errorf("%s: hooks.SessionStart is not a list", path)
+	groups, ok := hooks[event].([]any)
+	if !ok && hooks[event] != nil {
+		return false, fmt.Errorf("%s: hooks.%s is not a list", path, event)
 	}
 	var kept []any
 	for _, g := range groups {
@@ -224,7 +258,7 @@ func setClaudeHook(path, command string, install bool) (bool, error) {
 		}
 		var keep []any
 		for _, h := range hs {
-			if hm, ok := h.(map[string]any); ok && isOurHook(hm["command"]) {
+			if hm, ok := h.(map[string]any); ok && isOurHook(hm["command"], event) {
 				continue
 			}
 			keep = append(keep, h)
@@ -239,9 +273,9 @@ func setClaudeHook(path, command string, install bool) (bool, error) {
 		kept = append(kept, map[string]any{"hooks": []any{map[string]any{"type": "command", "command": command, "timeout": 15}}})
 	}
 	if len(kept) == 0 {
-		delete(hooks, "SessionStart")
+		delete(hooks, event)
 	} else {
-		hooks["SessionStart"] = kept
+		hooks[event] = kept
 	}
 	if len(hooks) == 0 {
 		delete(m, "hooks")
@@ -469,10 +503,12 @@ func Disconnect(ctx context.Context, svc *application.Service, user domain.Actor
 			rep.Changed = append(rep.Changed, "Claude Code user MCP config")
 		}
 		settings := filepath.Join(env.UserHome, ".claude", "settings.json")
-		if changed, err := setClaudeHook(settings, "", false); err != nil {
-			return rep, err
-		} else if changed {
-			rep.Changed = append(rep.Changed, settings)
+		for _, event := range []string{SessionStartEvent, PromptEvent} {
+			if changed, err := setClaudeHook(settings, event, "", false); err != nil {
+				return rep, err
+			} else if changed && !slices.Contains(rep.Changed, settings) {
+				rep.Changed = append(rep.Changed, settings)
+			}
 		}
 	case ClaudeDesktop:
 		path := claudeDesktopConfig(env)

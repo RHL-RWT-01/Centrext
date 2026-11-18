@@ -42,6 +42,7 @@ Usage:
   centrext agent grant AGENT_ID (NS | --all)
   centrext agent revoke AGENT_ID [--reject-pending]
   centrext connect CLIENT [--dir DIR] [--namespace NS ...]   CLIENT: claude-code, cursor, claude-desktop
+                   [--prompt-context on|off]               claude-code: add matching context to each prompt
   centrext disconnect CLIENT [--dir DIR]
   centrext export [--dir DIR]              write user-verified decisions to .centrext-export/ in this repo
   centrext embeddings enable [--provider openai|voyage|openai-compatible] [--model M] [--base-url URL]
@@ -50,7 +51,7 @@ Usage:
   centrext doctor                          check the install, clients and repos for leaked tokens
   centrext link NAMESPACE [--dir DIR]      pin this repo with a .centrext marker
   centrext mcp (--client CLIENT | --agent AGENT_ID) [--workspace DIR]
-  centrext hook session-start (--client CLIENT | --agent AGENT_ID)
+  centrext hook (session-start | prompt) (--client CLIENT | --agent AGENT_ID)
   centrext version
 
 Environment:

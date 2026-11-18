@@ -74,6 +74,7 @@ func (a *app) cmdConnect(ctx context.Context, args []string, remove bool) error 
 	}
 	fs := newFlags(name)
 	dir := fs.String("dir", "", "project folder for cursor (default: this repo)")
+	promptCtx := fs.String("prompt-context", "", "claude-code: on or off; add matching saved context to each prompt")
 	var nss multi
 	fs.Var(&nss, "namespace", "restrict a new agent to this namespace (repeatable; default: all)")
 	pos, err := parse(fs, args)
@@ -87,7 +88,7 @@ func (a *app) cmdConnect(ctx context.Context, args []string, remove bool) error 
 	if err != nil {
 		return err
 	}
-	opts := connect.Options{Client: pos[0], Dir: *dir}
+	opts := connect.Options{Client: pos[0], Dir: *dir, PromptContext: *promptCtx}
 	for _, n := range nss {
 		ns, err := a.svc.FindNamespace(ctx, a.user, n)
 		if err != nil {

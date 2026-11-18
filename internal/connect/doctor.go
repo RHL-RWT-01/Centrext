@@ -182,25 +182,40 @@ func checkClaudeCode(env Env, add func(Status, string, string, string)) {
 		add(Fail, ClaudeCode, err.Error(), "")
 		return
 	}
-	var ours []string
 	hooks, _ := m["hooks"].(map[string]any)
-	groups, _ := hooks["SessionStart"].([]any)
-	for _, g := range groups {
-		gm, _ := g.(map[string]any)
-		hs, _ := gm["hooks"].([]any)
-		for _, h := range hs {
-			if hm, ok := h.(map[string]any); ok && isOurHook(hm["command"]) {
-				ours = append(ours, hm["command"].(string))
+	ours := func(event string) []string {
+		var out []string
+		groups, _ := hooks[event].([]any)
+		for _, g := range groups {
+			gm, _ := g.(map[string]any)
+			hs, _ := gm["hooks"].([]any)
+			for _, h := range hs {
+				if hm, ok := h.(map[string]any); ok && isOurHook(hm["command"], event) {
+					out = append(out, hm["command"].(string))
+				}
 			}
 		}
+		return out
+	}
+	start, prompt := ours(SessionStartEvent), ours(PromptEvent)
+	fix := "centrext connect " + ClaudeCode
+	switch {
+	case len(start) == 0:
+		add(Fail, ClaudeCode, "no SessionStart hook in "+settings+", so sessions start without the summary", fix)
+	case len(start) > 1:
+		add(Warn, ClaudeCode, fmt.Sprintf("%d Centrext SessionStart hooks in %s; the summary is added more than once", len(start), settings), fix)
+	case !strings.HasPrefix(start[0], shellQuote(env.Binary)+" "):
+		add(Warn, ClaudeCode, "the SessionStart hook runs another centrext binary: "+start[0], fix)
 	}
 	switch {
-	case len(ours) == 0:
-		add(Fail, ClaudeCode, "no SessionStart hook in "+settings+", so sessions start without the summary", "centrext connect "+ClaudeCode)
-	case len(ours) > 1:
-		add(Warn, ClaudeCode, fmt.Sprintf("%d Centrext SessionStart hooks in %s; the summary is added more than once", len(ours), settings), "centrext connect "+ClaudeCode)
-	case !strings.HasPrefix(ours[0], shellQuote(env.Binary)+" "):
-		add(Warn, ClaudeCode, "the SessionStart hook runs another centrext binary: "+ours[0], "centrext connect "+ClaudeCode)
+	case len(prompt) == 0:
+		add(OK, ClaudeCode, "per-prompt context is off", "")
+	case len(prompt) > 1:
+		add(Warn, ClaudeCode, fmt.Sprintf("%d Centrext UserPromptSubmit hooks in %s; context is added more than once", len(prompt), settings), fix+" --prompt-context on")
+	case !strings.HasPrefix(prompt[0], shellQuote(env.Binary)+" "):
+		add(Warn, ClaudeCode, "the UserPromptSubmit hook runs another centrext binary: "+prompt[0], fix+" --prompt-context on")
+	default:
+		add(OK, ClaudeCode, "per-prompt context is on (ADR-024)", "")
 	}
 }
 
