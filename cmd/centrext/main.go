@@ -28,6 +28,7 @@ Usage:
   centrext namespace link NS IDENTITY
   centrext namespace policy NS MODE       local_only | local_primary | cloud_primary | shared
   centrext context list [--namespace NS] [--type TYPE] [--all]
+  centrext context search QUERY... [--namespace NS] [--type TYPE] [--limit N]
   centrext context show ID
   centrext context history ID
   centrext context add --namespace NS --type TYPE --title TITLE --body BODY
@@ -43,6 +44,8 @@ Usage:
   centrext connect CLIENT [--dir DIR] [--namespace NS ...]   CLIENT: claude-code, cursor, claude-desktop
   centrext disconnect CLIENT [--dir DIR]
   centrext export [--dir DIR]              write user-verified decisions to .centrext-export/ in this repo
+  centrext embeddings enable [--provider openai|voyage|openai-compatible] [--model M] [--base-url URL]
+  centrext embeddings key | status | sync | disable    semantic search through a hosted API
   centrext stats                           capture metrics: what gets saved, retrieved and used
   centrext doctor                          check the install, clients and repos for leaked tokens
   centrext link NAMESPACE [--dir DIR]      pin this repo with a .centrext marker
@@ -54,6 +57,7 @@ Environment:
   CENTREXT_HOME     data directory (default ~/.centrext)
   CENTREXT_DB_KEY   64 hex digits; overrides the OS keychain (temporary workaround)
   CENTREXT_TOKEN    agent token for mcp/hook; overrides the keychain
+  CENTREXT_EMBEDDINGS_KEY (or OPENAI_API_KEY, VOYAGE_API_KEY)  embeddings API key; overrides the keychain
 `
 
 func main() {
@@ -113,12 +117,16 @@ func openApp(ctx context.Context, create bool) (*app, error) {
 		return nil, err
 	}
 	var svc *application.Service
-	svc = application.New(store, application.WithOnChange(func(ctx context.Context, namespaceID string) {
+	opts := []application.Option{application.WithWarn(func(msg string) { fmt.Fprintln(os.Stderr, "centrext:", msg) })}
+	if emb := loadEmbedder(h); emb != nil {
+		opts = append(opts, application.WithEmbedder(emb))
+	}
+	svc = application.New(store, append(opts, application.WithOnChange(func(ctx context.Context, namespaceID string) {
 		// Keep Cursor rules files current (ADR-014). Never fails the change.
 		if err := connect.RefreshCursorRules(ctx, svc, h, namespaceID); err != nil {
 			fmt.Fprintln(os.Stderr, "centrext: couldn't refresh Cursor rules:", err)
 		}
-	}))
+	}))...)
 	return &app{svc: svc, store: store}, nil
 }
 
@@ -169,6 +177,12 @@ func run(ctx context.Context, args []string) error {
 		return a.cmdStats(ctx)
 	case "export":
 		return a.cmdExport(ctx, args[1:])
+	case "embeddings":
+		h, err := home()
+		if err != nil {
+			return err
+		}
+		return a.cmdEmbeddings(ctx, h, args[1:])
 	case "connect":
 		return a.cmdConnect(ctx, args[1:], false)
 	case "disconnect":

@@ -167,6 +167,36 @@ func (a *app) cmdContext(ctx context.Context, args []string) error {
 				v.Context.CurrentVersion, v.Context.Status, v.Head.Title)
 		}
 		return w.Flush()
+	case "search":
+		fs := newFlags("context search")
+		nsFlag := fs.String("namespace", "", "namespace id or name")
+		typ := fs.String("type", "", "context type")
+		limit := fs.Int("limit", 5, "maximum results")
+		words, err := parse(fs, args[1:])
+		if err != nil {
+			return err
+		}
+		q := application.SearchQuery{Query: strings.Join(words, " "), Limit: *limit}
+		if *nsFlag != "" {
+			n, err := a.svc.FindNamespace(ctx, a.user, *nsFlag)
+			if err != nil {
+				return err
+			}
+			q.NamespaceID = n.ID
+		}
+		if *typ != "" {
+			q.Types = []domain.ContextType{domain.ContextType(*typ)}
+		}
+		res, err := a.svc.Search(ctx, a.user, q)
+		if err != nil {
+			return err
+		}
+		w := table()
+		fmt.Fprintln(w, "SCORE\tID\tTYPE\tTRUST\tTITLE")
+		for _, it := range res.Items {
+			fmt.Fprintf(w, "%.2f\t%s\t%s\t%s\t%s\n", it.Score, it.Context.ID, it.Context.Type, it.Context.HeadTrust, it.Head.Title)
+		}
+		return w.Flush()
 	case "show":
 		if err := need(args[1:], 1, "ID"); err != nil {
 			return err

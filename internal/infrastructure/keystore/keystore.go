@@ -111,3 +111,40 @@ func DeleteAgentToken(home, agentID string) error {
 	}
 	return err
 }
+
+func embeddingsAccount(home string) string { return "embeddings-key:" + home }
+
+// ErrNoEmbeddingsKey means no API key is stored or set in the environment.
+var ErrNoEmbeddingsKey = errors.New("no embeddings API key; run `centrext embeddings key`")
+
+// StoreEmbeddingsKey keeps the hosted embeddings API key in the keychain (ADR-023).
+func StoreEmbeddingsKey(home, key string) error {
+	return keyring.Set(service, embeddingsAccount(home), key)
+}
+
+// LoadEmbeddingsKey returns the key from the first set variable in envs, else
+// from the keychain. The second result names where it came from.
+func LoadEmbeddingsKey(home string, envs []string) (string, string, error) {
+	for _, e := range envs {
+		if v := os.Getenv(e); v != "" {
+			return v, e, nil
+		}
+	}
+	v, err := keyring.Get(service, embeddingsAccount(home))
+	if errors.Is(err, keyring.ErrNotFound) {
+		return "", "", ErrNoEmbeddingsKey
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("keychain unavailable (%v); set %s", err, envs[0])
+	}
+	return v, string(FromKeychain), nil
+}
+
+// DeleteEmbeddingsKey removes the stored key.
+func DeleteEmbeddingsKey(home string) error {
+	err := keyring.Delete(service, embeddingsAccount(home))
+	if errors.Is(err, keyring.ErrNotFound) {
+		return nil
+	}
+	return err
+}

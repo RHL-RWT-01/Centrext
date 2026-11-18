@@ -10,6 +10,8 @@ import (
 
 	"centrext/internal/application"
 	"centrext/internal/connect"
+	"centrext/internal/domain"
+	"centrext/internal/infrastructure/embeddings"
 	"centrext/internal/infrastructure/keystore"
 	"centrext/internal/infrastructure/sqlite"
 )
@@ -75,6 +77,7 @@ func cmdDoctor(ctx context.Context) error {
 	}
 	cwd, _ := os.Getwd()
 	checks = append(checks, connect.Doctor(ctx, svc, user, env, cwd)...)
+	checkEmbeddings(ctx, h, store, user, add)
 	for _, c := range checks {
 		if c.Status == connect.Fail {
 			return errDoctorFailed
@@ -98,4 +101,35 @@ func printChecks(checks []connect.Check) {
 		}
 	}
 	fmt.Printf("\n%d problem(s), %d warning(s)\n", fails, warns)
+}
+
+// checkEmbeddings reports semantic search setup without calling the API.
+func checkEmbeddings(ctx context.Context, h string, store *sqlite.Store, user domain.Actor, add func(connect.Status, string, string, string)) {
+	cfg, ok, err := embeddings.LoadConfig(h)
+	switch {
+	case err != nil:
+		add(connect.Fail, "embeddings", err.Error(), "centrext embeddings enable")
+		return
+	case !ok:
+		add(connect.OK, "embeddings", "off; search is lexical", "")
+		return
+	}
+	key, src, err := keystore.LoadEmbeddingsKey(h, embeddings.KeyEnv(cfg.Provider))
+	if err != nil {
+		add(connect.Fail, "embeddings", "enabled ("+cfg.Model+") but "+err.Error(), "centrext embeddings key")
+		return
+	}
+	if src != string(keystore.FromKeychain) {
+		add(connect.Warn, "embeddings", "API key comes from "+src+"; clients started without it search lexically", "centrext embeddings key")
+	}
+	st, err := application.New(store, application.WithEmbedder(embeddings.New(cfg, key, embedderTimeout))).EmbeddingStatus(ctx, user, false)
+	if err != nil {
+		add(connect.Fail, "embeddings", err.Error(), "")
+		return
+	}
+	if len(st.Eligible) == 0 {
+		add(connect.Warn, "embeddings", "enabled, but every namespace is local_only, so nothing is embedded", "centrext namespace policy NS local_primary")
+		return
+	}
+	add(connect.OK, "embeddings", fmt.Sprintf("%s: %d of %d items embedded in %d namespace(s)", st.Model, st.Embedded, st.Active, len(st.Eligible)), "")
 }
