@@ -71,6 +71,28 @@ centrext doctor
 
 Then start a new session and tell your agent to "remember" a decision. Open another client and ask about it.
 
+## Semantic search (optional)
+
+Search is full-text by default. To also find paraphrases ("where do we persist orders?" finding "Orders live in PostgreSQL"), add a hosted embeddings API:
+
+```bash
+centrext embeddings enable --provider openai
+```
+
+```bash
+centrext embeddings key
+```
+
+Providers: `openai`, `voyage`, or any `openai-compatible` endpoint (`--base-url`, `--model`). The key goes in the keychain; `CENTREXT_EMBEDDINGS_KEY` also works.
+
+Embedding sends text to the provider, so it only applies to namespaces whose policy allows content to leave the device. New namespaces are `local_only` and stay full-text until you opt one in:
+
+```bash
+centrext namespace policy NAMESPACE local_primary
+```
+
+Vectors are computed on the next search, or all at once with `centrext embeddings sync`. If the API is slow or down, search falls back to full-text. Queries that contain secrets are never sent.
+
 ## Trust and review
 
 | Trust | How an item gets it |
@@ -93,8 +115,9 @@ centrext review
 | `connect` / `disconnect CLIENT` | Install or remove Centrext for `claude-code`, `cursor` or `claude-desktop` |
 | `doctor` | Check the store, clients, generated files and repos for leaked tokens |
 | `export` | Write the repo's verified decisions to `.centrext-export/` for teammates (namespace must allow it) |
+| `embeddings enable / key / status / sync / disable` | Optional semantic search through a hosted API |
 | `stats` | See what gets saved, and how often other agents retrieve and use it |
-| `context list / show / history / add / verify / delete` | Browse and manage saved context |
+| `context search / list / show / history / add / verify / delete` | Browse and manage saved context |
 | `review [approve / reject ID]` | Approve or reject what agents proposed |
 | `namespace list / create / link / policy` | Manage namespaces, their identities and storage policy |
 | `link NAMESPACE` | Pin a repo to a namespace with a `.centrext` file |
@@ -120,14 +143,15 @@ internal/retrieval        query building, ranking, token budgets
 internal/workspace        project identity from a folder (marker, git)
 internal/transport/mcp    MCP tools, resources and prompts
 internal/connect          client installs, Cursor rules file, doctor
-internal/infrastructure   encrypted SQLite store, OS keychain
+internal/infrastructure   encrypted SQLite store, OS keychain, embeddings client
+internal/eval             labeled retrieval set and metrics
 ```
 
 ## Roadmap
 
 - [x] **0.1 Local runtime:** encrypted store, namespaces, immutable revisions, proposals, agents
-- [ ] **0.2 Multi-agent:** MCP server, Claude Code, Cursor and Claude Desktop, search, `connect`, `doctor` *(in progress)*
-- [ ] **0.3 Context intelligence:** embeddings, hybrid ranking, evaluation set
+- [ ] **0.2 Multi-agent:** MCP server, Claude Code, Cursor and Claude Desktop, search, `connect`, `doctor` *(built; hit-rate check in real clients left)*
+- [ ] **0.3 Context intelligence:** evaluation set, hosted embeddings, hybrid ranking *(in progress)*
 - [ ] **0.4 Hybrid sync:** cloud API, shared namespaces, web chat apps
 - [ ] **0.5 Enterprise:** org namespaces, RBAC, audit, retention
 
@@ -141,6 +165,12 @@ Measure retrieval quality (precision, recall, stale results) on the labeled set 
 
 ```bash
 go test ./internal/eval -run Retrieval -v
+```
+
+Hybrid results use vectors recorded once from a provider and replayed offline. Recording sends only the synthetic eval set:
+
+```bash
+CENTREXT_EVAL_RECORD=openai OPENAI_API_KEY=... go test ./internal/eval -run Hybrid -v
 ```
 
 Data lives in `~/.centrext`. Set `CENTREXT_HOME` to use another folder.
