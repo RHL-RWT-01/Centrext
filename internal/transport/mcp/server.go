@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -93,9 +95,7 @@ func (s *Server) namespace(ctx context.Context, session *sdk.ServerSession) (app
 		roots, err := session.ListRoots(rctx, nil)
 		cancel()
 		if err == nil && roots != nil && len(roots.Roots) > 0 {
-			if u, err := url.Parse(roots.Roots[0].URI); err == nil && u.Scheme == "file" {
-				dir = u.Path
-			}
+			dir, _ = RootPath(roots.Roots[0].URI)
 		}
 		s.fromRoots = true // asked once; don't ask on every call
 	}
@@ -118,6 +118,20 @@ func clientHasRoots(session *sdk.ServerSession) bool {
 	}
 	p := session.InitializeParams()
 	return p != nil && p.Capabilities != nil && p.Capabilities.RootsV2 != nil
+}
+
+// RootPath turns a file:// root URI into a local path, including Windows
+// drive paths ("file:///C:/src" -> "C:\src").
+func RootPath(uri string) (string, bool) {
+	u, err := url.Parse(uri)
+	if err != nil || u.Scheme != "file" || u.Path == "" {
+		return "", false
+	}
+	p := u.Path
+	if runtime.GOOS == "windows" && len(p) >= 3 && p[0] == '/' && p[2] == ':' {
+		p = p[1:]
+	}
+	return filepath.FromSlash(p), true
 }
 
 // namespaceFor picks the namespace a tool works on: the named one, or the session's.

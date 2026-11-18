@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"centrext/internal/application"
 	"centrext/internal/connect"
@@ -36,7 +37,7 @@ func cmdDoctor(ctx context.Context) error {
 		add(connect.Fail, "store", "no database at "+dbPath, "centrext init")
 		return errDoctorFailed
 	}
-	if fi.Mode().Perm()&0o077 != 0 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 { // Windows uses ACLs, not modes
 		add(connect.Warn, "store", fmt.Sprintf("%s is readable by other users (%v)", dbPath, fi.Mode().Perm()), "chmod 600 "+dbPath)
 	}
 	key, src, err := keystore.Load(h, sqlite.KeySize, false)

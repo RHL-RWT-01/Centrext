@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,7 +88,7 @@ func (e *env) connect(actor domain.Actor, opts mcpx.Options, roots ...string) *s
 	}
 	client := sdk.NewClient(&sdk.Implementation{Name: "test-client", Version: "1"}, nil)
 	for _, r := range roots {
-		client.AddRoots(&sdk.Root{URI: "file://" + r})
+		client.AddRoots(&sdk.Root{URI: fileURI(r)})
 	}
 	cs, err := client.Connect(e.ctx, ct, sopts)
 	if err != nil {
@@ -95,6 +96,27 @@ func (e *env) connect(actor domain.Actor, opts mcpx.Options, roots ...string) *s
 	}
 	e.t.Cleanup(func() { cs.Close() })
 	return cs
+}
+
+func fileURI(path string) string {
+	p := filepath.ToSlash(path)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p // Windows: /C:/...
+	}
+	return (&url.URL{Scheme: "file", Path: p}).String()
+}
+
+func TestRootPath(t *testing.T) {
+	dir := t.TempDir()
+	if got, ok := mcpx.RootPath(fileURI(dir)); !ok || got != dir {
+		t.Fatalf("RootPath(%s) = %q, want %q", fileURI(dir), got, dir)
+	}
+	if got, ok := mcpx.RootPath("file:///tmp/with%20space"); !ok || filepath.ToSlash(got) != "/tmp/with space" {
+		t.Fatalf("percent-decoding: %q", got)
+	}
+	if _, ok := mcpx.RootPath("https://example.com/x"); ok {
+		t.Fatal("non-file URIs are not roots")
+	}
 }
 
 // call runs a tool and decodes its structured result. wantErr says whether

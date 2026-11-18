@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -92,7 +93,7 @@ func TestEncryptedAtRestAndWrongKey(t *testing.T) {
 		s2.Close()
 		t.Fatal("wrong key should fail to open")
 	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(path); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 { // Windows has no Unix modes
 		t.Fatalf("db file mode = %v, want 0600", st.Mode().Perm())
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -199,7 +200,7 @@ func TestClaudeDesktopKeepsOtherServers(t *testing.T) {
 	if servers["other"] == nil || m["globalShortcut"] != "Cmd+K" || ours["command"] != f.env.Binary {
 		t.Fatalf("config: %v", m)
 	}
-	if fi, _ := os.Stat(cfg); fi.Mode().Perm() != 0o644 {
+	if fi, _ := os.Stat(cfg); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o644 {
 		t.Fatal("existing file mode should be kept")
 	}
 	if _, err := connect.Disconnect(f.ctx, f.svc, f.user, f.env, connect.Options{Client: connect.ClaudeDesktop}); err != nil {
